@@ -72,78 +72,66 @@ class FilesController {
       .send({ ...objFromQuery, id: queryResult.insertedId });
   }
 
-  static async getShow(request, response) {
-    const usrId = request.user._id;
-    const { id } = request.params;
-    const file = await dbClient.filterFiles({ _id: id });
-    if (!file) {
-      response.status(404).json({ error: 'Not found' }).end();
-    } else if (String(file.userId) !== String(usrId)) {
-      response.status(404).json({ error: 'Not found' }).end();
-    } else {
-      response.status(200).json(file).end();
-    }
+  static async getShow(req, res) {
+    // retrieve user from storage
+    const token = req.headers['x-token'];
+    if (!token) return res.status(401).send({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).send({ error: 'Unauthorized' });
+
+    const users = await dbClient.db.collection('users');
+    const user = await users.findOne({ _id: ObjectId(userId) });
+    if (!user) return res.status(401).send({ error: 'Unauthorized' });
+
+    // retrieve document from storage
+    const fileId = req.params.id;
+    if (!fileId) return res.status(404).send({ error: 'Not found' });
+    const files = await dbClient.db.collection('files');
+    const file = await files.findOne({ _id: ObjectId(fileId), userId });
+    if (!file) return res.status(404).send({ error: 'Not found' });
+
+    delete file.localPath;
+    file.id = file._id;
+    delete file._id;
+    return res.send(file);
   }
 
-  static async getIndex(request, response) {
-    const usrId = request.user._id;
-    const _parentId = request.query.parentId ? request.query.parentId : '0';
-    const page = request.query.page ? request.query.page : 0;
-    const cursor = await dbClient.findFiles(
-      { parentId: _parentId, userId: usrId },
-      { limit: 20, skip: 20 * page },
+  static async getIndex(req, res) {
+    // retrieve user from storage
+    const token = req.headers['x-token'];
+    if (!token) return res.status(401).send({ error: 'Unauthorized' });
+
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).send({ error: 'Unauthorized' });
+
+    const users = await dbClient.db.collection('users');
+    const user = await users.findOne({ _id: ObjectId(userId) });
+    if (!user) return res.status(401).send({ error: 'Unauthorized' });
+
+    // retrieve file from storage
+    const { parentId } = req.query;
+    const page = req.query.page || 0;
+    const limit = 20;
+    const files = await dbClient.db.collection('files');
+    const parentFiles = await files
+      .aggregate([
+        { $match: { parentId, userId } },
+        { $skip: page * limit },
+        { $limit: limit },
+      ])
+      .toArray();
+
+    return res.send(
+      parentFiles.map((file) => {
+        const obj = { ...file };
+        obj.id = obj._id;
+        delete obj._id;
+        delete obj.localPath;
+        return obj;
+      }),
     );
-    const res = await cursor.toArray();
-    res.map((i) => {
-      // eslint-disable-next-line no-param-reassign
-      i.id = i._id;
-      // eslint-disable-next-line no-param-reassign
-      delete i._id;
-      return i;
-    });
-    response.status(200).json(res).end();
-  }
-
-  static async putPublish(request, response) {
-    const userId = request.usr._id;
-    const file = await dbClient.filterFiles({ _id: request.params.id });
-    if (!file || String(file.userId) !== String(userId)) {
-      response.status(404).json({ error: 'Not found' }).end();
-    } else {
-      const newFile = await dbClient.updatefiles({ _id: file._id }, { isPublic: true });
-      response.status(200).json(newFile).end();
-    }
-  }
-
-  static async putUnpublish(request, response) {
-    const userId = request.usr._id;
-    const file = await dbClient.filterFiles({ _id: request.params.id });
-    if (!file || String(file.userId) !== String(userId)) {
-      response.status(404).json({ error: 'Not found' }).end();
-    } else {
-      const newFile = await dbClient.updatefiles({ _id: file._id }, { isPublic: false });
-      response.status(200).json(newFile).end();
-    }
-  }
-
-  static async getFile(request, response) {
-    const usrId = request.usr._id;
-    const file = await dbClient.filterFiles({ _id: request.params.id });
-    if (!file) {
-      response.status(404).json({ error: 'Not found' }).end();
-    } else if (file.type === 'folder') {
-      response.status(400).json({ error: "A folder doesn't have content" }).end();
-    } else if ((String(file.userId) === String(usrId)) || file.isPublic) {
-      try {
-        const content = await UtilController.readFile(file.localPath);
-        const header = { 'Content-Type': contentType(file.name) };
-        response.set(header).status(200).send(content).end();
-      } catch (err) {
-        response.status(404).json({ error: 'Not found' }).end();
-      }
-    } else {
-      response.status(404).json({ error: 'Not found' }).end();
-    }
   }
 }
+
 module.exports = FilesController;
