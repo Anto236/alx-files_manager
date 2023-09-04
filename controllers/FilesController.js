@@ -110,7 +110,7 @@ class FilesController {
     if (!user) return res.status(401).send({ error: 'Unauthorized' });
 
     // retrieve file from storage
-    const { parentId } = req.query;
+    const parentId = req.query.parentId || 0;
     const page = req.query.page || 0;
     const limit = 20;
     const files = await dbClient.db.collection('files');
@@ -129,7 +129,7 @@ class FilesController {
         delete obj._id;
         delete obj.localPath;
         return obj;
-      }),
+      })
     );
   }
 }
