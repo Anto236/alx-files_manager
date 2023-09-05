@@ -129,8 +129,64 @@ class FilesController {
         delete obj._id;
         delete obj.localPath;
         return obj;
-      })
+      }),
     );
+  }
+
+  static async putPublish(req, res) {
+    // get user
+    const token = req.headers['x-token'];
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).send({ error: 'Unauthorized' });
+
+    const users = await dbClient.db.collection('users');
+    const user = await users.findOne({ _id: ObjectId(userId) });
+    if (!user) return res.status(401).send({ error: 'Unauthorized' });
+
+    // get document
+    const fileId = req.params.id;
+    const files = await dbClient.db.collection('files');
+    const file = await files.findOne({ _id: ObjectId(fileId), userId });
+    if (!file) return res.status(404).send({ error: 'Not found' });
+
+    // update document.isPulic attribute
+    await files.updateOne(file, {
+      $set: { isPublic: true },
+    });
+
+    file.id = file._id;
+    file.isPublic = true;
+    delete file._id;
+    delete file.localPath;
+    return res.send(file);
+  }
+
+  static async putUnpublish(req, res) {
+    // get user
+    const token = req.headers['x-token'];
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) return res.status(401).send({ error: 'Unauthorized' });
+
+    const users = await dbClient.db.collection('users');
+    const user = await users.findOne({ _id: ObjectId(userId) });
+    if (!user) return res.status(401).send({ error: 'Unauthorized' });
+
+    // get document
+    const fileId = req.params.id;
+    const files = await dbClient.db.collection('files');
+    const file = await files.findOne({ _id: ObjectId(fileId), userId });
+    if (!file) return res.status(404).send({ error: 'Not found' });
+
+    // update document.isPulic attribute
+    await files.updateOne(file, {
+      $set: { isPublic: false },
+    });
+
+    file.id = file._id;
+    file.isPublic = false;
+    delete file._id;
+    delete file.localPath;
+    return res.send(file);
   }
 }
 
